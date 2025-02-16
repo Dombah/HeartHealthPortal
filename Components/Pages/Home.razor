@@ -1,0 +1,261 @@
+﻿@page "/"
+@using System.Text
+@using System.Text.Json
+@using Newtonsoft.Json.Linq
+@inject HttpClient Http
+
+<div class="container">
+    <h2>Heart Disease Risk Prediction</h2>
+
+    <div class="form-group">
+        <label>Age:</label>
+        <input type="number" @bind="patient.Age" />
+    </div>
+
+    <div class="form-group">
+        <label>Sex:</label>
+        <select @bind="patient.Sex">
+            <option value="M">Male</option>
+            <option value="F">Female</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>Chest Pain Type:</label>
+        <select @bind="patient.ChestPainType">
+            <option value="ATA">ATA</option>
+            <option value="NAP">NAP</option>
+            <option value="ASY">ASY</option>
+            <option value="TA">TA</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>RestingBP:</label>
+        <input type="number" @bind="patient.RestingBP" />
+    </div>
+
+    <div class="form-group">
+        <label>Cholesterol:</label>
+        <input type="number" @bind="patient.Cholesterol" />
+    </div>
+
+    <div class="form-group">
+        <label>Fasting Blood Sugar:</label>
+        <select @bind="patient.FastingBS">
+            <option value="1">Yes</option>
+            <option value="0">No</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>Resting ECG:</label>
+        <select @bind="patient.RestingECG">
+            <option value="Normal">Normal</option>
+            <option value="ST">ST</option>
+            <option value="LVH">LVH</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>MaxHR:</label>
+        <input type="number" @bind="patient.MaxHR" />
+    </div>
+
+    <div class="form-group">
+        <label>Exercise Angina:</label>
+        <select @bind="patient.ExerciseAngina">
+            <option value="Y">Yes</option>
+            <option value="N">No</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>Oldpeak:</label>
+        <input type="number" step="0.1" @bind="patient.Oldpeak" />
+    </div>
+
+    <div class="form-group">
+        <label>ST Slope:</label>
+        <select @bind="patient.ST_Slope">
+            <option value="Up">Up</option>
+            <option value="Flat">Flat</option>
+            <option value="Down">Down</option>
+        </select>
+    </div>
+
+    <button @onclick="GetPrediction">Predict</button>
+
+    @if (!string.IsNullOrEmpty(predictionResult))
+    {
+        <div class="prediction">
+            <h3>@predictionResult</h3>
+        </div>
+    }
+</div>
+
+<style>
+    .container {
+        width: 50%;
+        margin: auto;
+        padding: 20px;
+        background: #fff;
+        box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
+        border-radius: 10px;
+    }
+
+    h2 {
+        text-align: center;
+    }
+
+    .form-group {
+        margin-bottom: 15px;
+    }
+
+    label {
+        display: block;
+        font-weight: bold;
+    }
+
+    input, select {
+        width: 100%;
+        padding: 8px;
+        margin-top: 5px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+    }
+
+    button {
+        width: 100%;
+        background-color: #4CAF50;
+        color: white;
+        padding: 10px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 16px;
+    }
+
+    button:hover {
+        background-color: #45a049;
+    }
+
+    .prediction {
+        text-align: center;
+        font-size: 18px;
+        font-weight: bold;
+        margin-top: 15px;
+    }
+</style>
+
+@code {
+    private Patient patient = new Patient();
+    private string predictionResult = "";
+    private string azureMlEndpoint = "http://851cbf6d-778d-4518-abbc-81fb7f70e423.westeurope.azurecontainer.io/score";
+    private string apiKey = "r0QkyNk9TQxLkDYgYXsGZ4WQJTpRDQiB";
+    StringBuilder sb = new StringBuilder();
+    private async Task GetPrediction()
+    {
+        sb.Clear();
+        var data = new
+        {
+            Inputs = new
+            {
+                input1 = new[]
+                {
+                    new
+                    {
+                        Age = patient.Age,
+                        Sex = patient.Sex ?? "M",
+                        ChestPainType = patient.ChestPainType ?? "ATA",
+                        RestingBP = patient.RestingBP,
+                        Cholesterol = patient.Cholesterol,
+                        FastingBS = patient.FastingBS,
+                        RestingECG = patient.RestingECG ?? "Normal",
+                        MaxHR = patient.MaxHR,
+                        ExerciseAngina = patient.ExerciseAngina ?? "Y",
+                        Oldpeak = patient.Oldpeak,
+                        ST_Slope = patient.ST_Slope ?? "Up"
+                    }
+                }
+            }
+        };
+        var json = JsonSerializer.Serialize(data);
+
+        if (string.IsNullOrEmpty(apiKey))
+        {
+            throw new Exception("A key should be provided to invoke the endpoint");
+        }
+        var request = new HttpRequestMessage(HttpMethod.Post, azureMlEndpoint)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+        request.Headers.Add("Authorization", "Bearer " + apiKey);
+        try
+        {
+            var response = await Http.SendAsync(request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadAsStringAsync();
+                var parsedResult = ExtractPrediction(result);
+                if (parsedResult.Prediction == 0)
+                {
+                    sb.Append($"There is a {Math.Round(parsedResult.Probability * 100, 2)}% the patient has no heart disease.\n");
+                    predictionResult = sb.ToString();
+                }
+                else{
+                    sb.Append($"There is a {Math.Round(parsedResult.Probability * 100, 2)}% the patient has some sort of heart disease.\n");
+                    predictionResult = sb.ToString();
+                }
+            }
+            else
+            {
+                predictionResult = $"The request failed with status code: {response.StatusCode}";
+            }
+        }
+        catch (Exception ex)
+        {
+            predictionResult = $"Error: {ex.Message}";
+        }
+    }
+
+    private PredictionResult ExtractPrediction(string jsonResponse)
+    {
+        var parsedJson = JObject.Parse(jsonResponse);
+        var prediction = parsedJson["Results"]["WebServiceOutput0"][0]["Prediction"].Value<double>();
+        var probability = parsedJson["Results"]["WebServiceOutput0"][0]["Probability"].Value<double>();
+
+        Console.WriteLine($"Prediction: {prediction}, Probability: {probability}");
+        var result = new PredictionResult
+            {
+                Prediction = (int)prediction,
+                Probability = probability
+            };
+
+        Console.WriteLine($"Structured Output - Prediction: {result.Prediction}, Probability: {result.Probability}");
+        return result;
+    }
+
+
+    public class PredictionResult
+    {
+        public int Prediction { get; set; }
+        public double Probability { get; set; }
+    }
+
+    class Patient
+    {
+        public int Age { get; set; }
+        public string Sex { get; set; }
+        public string ChestPainType { get; set; }
+        public int RestingBP { get; set; }
+        public int Cholesterol { get; set; }
+        public int FastingBS { get; set; }
+        public string RestingECG { get; set; }
+        public int MaxHR { get; set; }
+        public string ExerciseAngina { get; set; }
+        public double Oldpeak { get; set; }
+        public string ST_Slope { get; set; }
+    }
+}
